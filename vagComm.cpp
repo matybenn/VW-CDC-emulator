@@ -7,18 +7,31 @@ extern "C" void VagComm::thread_function(){
     mut.lock();
     while (enable)
     {
-        if (play){
-            mut.unlock();
-            ESP_LOGI(THR_TAG, "play");
-        }
-        else {
-            mut.unlock();
-            send_data(data_default);
-        }
+        switch (mode)
+        {
+        case 0: /*idle*/
+            ESP_LOGI(THR_TAG, "idle");
+            send_data(idle_data_packet);
+            break;
+
+        case 1: /*pause*/
+            ESP_LOGI(THR_TAG, "pause");
+            send_data(data_save[0]^0xFF);
+            send_data(0x41+cd);
+            send_info_bytes();
+            send_data(0x30);
+            send_data(data_save[7]^0xFF);
+            break;
         
-        vTaskDelay(100);
+        case 2: /*play*/
+            ESP_LOGI(THR_TAG, "play");
+            break;
+        }
+        mut.unlock();
+        vTaskDelay(CMD_DELAY);
         mut.lock();
     }
+    mut.unlock();
 }
 
 extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DATA_OUT){
@@ -34,15 +47,18 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
 	dev_config.queue_size = 1;
 	dev_config.pre_cb = NULL;
 	dev_config.post_cb = NULL;
-    
-
+    //DATA_IN init
     gpio_set_direction(DATA_I,GPIO_MODE_INPUT);
+    gpio_set_pull_mode(DATA_I,GPIO_PULLDOWN_ONLY);
+    gpio_set_intr_type(DATA_I,GPIO_INTR_POSEDGE);
+    gpio_intr_enable(DATA_I);
+    //gpio_isr_register(VagComm::decode,&data_in_itr);
+    //spi init
     spi_bus_initialize(SPI3_HOST, &bus_config, 0);
     spi_bus_add_device(SPI3_HOST, &dev_config, &spiHandle);
-
-    init();
-    play = false;
+    //cdc init
     enable = true;
+    cd=track=min=sec=mode = 0;
     t1 = std::thread(&VagComm::thread_function,this);
 }
 
@@ -56,13 +72,22 @@ VagComm::~VagComm(){
 
 void VagComm::update(uint8_t cd_num, uint8_t track_num, uint8_t time_min, uint8_t time_sec){
     mut.lock();
-
+    track = track_num;
+    min = time_min;
+    sec = time_sec;
+    if(cd_num != cd && cd_num < CD_EN){
+        cd_init(cd_num);
+        cd = cd_num;
+    }
     mut.unlock();
 }
 
-void VagComm::set_status(bool PLAYING){
+void VagComm::set_status(uint8_t PLAYING){
     mut.lock();
-    play = PLAYING;
+    if (mode == 0){
+        init();
+    }
+    mode = PLAYING;
     mut.unlock();
 }
 
@@ -76,12 +101,47 @@ void VagComm::send_data(std::array<uint8_t, 8> data){
     }
 }
 
+void VagComm::send_data(uint8_t data){    
+    spi_transaction_t trans;
+    std::memset(&trans,0,sizeof(trans));
+    data = 0xFF^data;
+    trans.length=8;
+    trans.tx_buffer = &data;
+    spi_device_transmit(spiHandle, &trans);
+}
+
 void VagComm::init(){
-    std::array<uint8_t, 8> data_init = {0x74,0xBE,0xFE,0xFF,0xFF,0xFF,0x8F,0x7C};
-    std::array<uint8_t, 8> data_init_wait = {0x34,0xFF,0xFE,0xFE,0xFE,0xFF,0xFA,0x3C};
-    send_data(data_init);
-    vTaskDelay(10);
-    send_data(data_init_wait);
-    vTaskDelay(50);
-    send_data(data_init);
+    
+    for (uint8_t i = 0; i<CD_EN; ++i){
+        cd_init(i); 
+    }
+}
+
+void VagComm::cd_init(uint8_t cd){
+    send_data(data_save[0]^0xFF);
+    send_data(0xD1+cd);
+    send_init_info_bytes();
+    send_data(0x00);
+    send_data(data_save[7]^0xFF);
+    vTaskDelay(CMD_DELAY);
+    send_data(data_save);
+    vTaskDelay(CMD_DELAY);
+}
+
+void VagComm::decode(){
+    
+}
+
+void VagComm::send_info_bytes(){
+    send_data(track);
+    send_data(min);
+    send_data(sec);
+    send_data(0x00); //scan and mix off
+}
+
+void VagComm::send_init_info_bytes(){
+    send_data(0x99); // max tr
+    send_data(0x99); // max min
+    send_data(0x59); // max sec
+    send_data(0x49); // modes
 }
