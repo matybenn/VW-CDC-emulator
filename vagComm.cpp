@@ -79,6 +79,7 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
     //queve + task
     fronta1 = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
     xTaskCreate(this->data_in_checker, "checker_task", 4096, this, 0, &data_checker);
+
     //rx_en
     rmt_new_rx_channel(&data_in_config, &data_in_rmt);
     rx_call.on_recv_done = this->data_rx;
@@ -88,15 +89,10 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
     rmt_receive(data_in_rmt, received_data, sizeof(received_data), &receive_config);
     
     //cdc init
-    enable = true;
-    mode = false;
-    cd=track=total_time=0;
+    cd=track=total_time=mode=playing=0;
 }
 
 VagComm::~VagComm(){
-    mut.lock();
-    enable = false;
-    mut.unlock();
     esp_timer_stop(time);
     esp_timer_stop(sender);
     esp_timer_delete(time);
@@ -120,14 +116,25 @@ void VagComm::update(uint8_t cd_num, uint8_t track_num, uint8_t time_min, uint8_
 }
 
 void VagComm::set_status(bool MODE_idle, bool PLAYING){
-    if(PLAYING == true && mode == false){
+    mut.lock();
+    if(MODE_idle == true && mode == false){
         init();
-        esp_timer_start_periodic(time,1000000);
     }
-    else if(PLAYING == false && mode == true){
-        esp_timer_stop(time);
+    mode = MODE_idle;
+    if (playing != PLAYING){
+        switch (playing)
+        {
+        case false:
+            esp_timer_start_periodic(time,1000000);
+            break;
+        
+        case true:
+            esp_timer_stop(time);
+            break;
+        }
+        playing = PLAYING;
     }
-    mode = PLAYING;
+    mut.unlock();
 }
 
 void VagComm::send_data(std::array<uint8_t, 8> data){    
@@ -150,9 +157,11 @@ void VagComm::send_data(uint8_t data){
 }
 
 void VagComm::init(){
+    mut.lock();
     for (uint8_t i = 0; i<CD_EN; ++i){
         cd_init(i); 
     }
+    mut.unlock();
 }
 
 void VagComm::cd_init(uint8_t cd){
@@ -190,7 +199,6 @@ void VagComm::send_init_info_bytes(){
 
 void VagComm::send_packet(){
     mut.lock();
-    if (!enable){ return; }
     switch (mode)
     {
     case false: /*idle*/
@@ -225,7 +233,7 @@ void VagComm::decode(){
     }*/
 
     if(rxdata.num_symbols != 34){return;}
-    ESP_LOGI("dec", "frame");
+    //ESP_LOGI("dec", "frame");
     for (uint8_t a = 0; a<4; ++a){
         uint8_t data = 0;
         for(uint8_t b = 1; b<=8; ++b){
@@ -233,10 +241,12 @@ void VagComm::decode(){
             if((rxdata.received_symbols[poradi].duration0 <= ONE_BIT_high+TOLERANCE && rxdata.received_symbols[poradi].duration0 >= ONE_BIT_high-TOLERANCE) && (rxdata.received_symbols[poradi].duration1 <= ONE_BIT_low+TOLERANCE && rxdata.received_symbols[poradi].duration1 >= ONE_BIT_low-TOLERANCE)){
                 data ^= (0b10000000 >> (b-1));
             }
-            //ESP_LOGI("dec", "%d, %d",rxdata.received_symbols[poradi].duration0,rxdata.received_symbols[poradi].duration1);
         }
         nec_received[a] = data;
         //ESP_LOGI("dec", "frame, %X", data);
     }
-    callback_function(nec_received[2]); //send third byte to callback
+    //is valid?
+    if((nec_received[0] == PREFIX_1) && (nec_received[1] == PREFIX_2)){
+        callback_function(nec_received[2], this); //send third byte to callback
+    }
 }

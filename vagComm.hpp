@@ -28,9 +28,6 @@
 #define SEEK_BWD_PUSH 0x58
 #define CD1 0x0C
 #define CD2 0x8C
-
-#define CHECKSUM 0xFF
-
 /*PARAMETRY SBĚRNICE - čas[us]*/
 #define START_BIT_high 9000
 #define START_BIT_low 4500
@@ -41,16 +38,15 @@
 
 #define TOLERANCE 150
 
-typedef bool (*rmt_rx_done_callback_t)(rmt_channel_handle_t rx_chan, const rmt_rx_done_event_data_t *edata, void *user_ctx);
-typedef void (*call_t)(uint8_t);
-
 extern "C" class VagComm
 {
 private:
+    typedef bool (*rmt_rx_done_callback_t)(rmt_channel_handle_t rx_chan, const rmt_rx_done_event_data_t *edata, void *user_ctx);
+    typedef void (*call_t)(uint8_t, VagComm*);
     //general
     gpio_num_t DATA_I;
     call_t callback_function;
-    bool enable,mode;
+    bool mode,playing;
     uint8_t cd,track;
     int total_time;
     std::mutex mut;
