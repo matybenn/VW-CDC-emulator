@@ -12,10 +12,12 @@
 #include <array>
 
 #define CD_EN 2 // enabled no. of cds 1-6 /cd1 - blt, cd2 - aux
+
 /*PARAMETRY SPI --> RADIO*/
 #define CLK_SPEED 62500
 #define MODE 2
-#define CMD_DELAY 10  // delay mezi packety
+#define CMD_DELAY 10  // delay mezi byty
+
 /*HODNOTY BYTŮ KTERÉ VYSÍLÁ RÁDIO - NEC protocol*/
 #define PREFIX_1 0x53
 #define PREFIX_2 0x2C
@@ -28,6 +30,7 @@
 #define SEEK_BWD_PUSH 0x58
 #define CD1 0x0C
 #define CD2 0x8C
+
 /*PARAMETRY SBĚRNICE - čas[us]*/
 #define START_BIT_high 9000
 #define START_BIT_low 4500
@@ -35,20 +38,19 @@
 #define ONE_BIT_low 1700
 #define ZERO_BIT_high 550
 #define ZERO_BIT_low 550
-
 #define TOLERANCE 150
 
 extern "C" class VagComm
 {
 private:
     typedef bool (*rmt_rx_done_callback_t)(rmt_channel_handle_t rx_chan, const rmt_rx_done_event_data_t *edata, void *user_ctx);
-    typedef void (*call_t)(uint8_t, VagComm*);
+    typedef void (*call_t)(uint8_t);
     //general
     gpio_num_t DATA_I;
     call_t callback_function;
     bool mode,playing;
     uint8_t cd,track;
-    int total_time;
+    uint32_t total_time;
     std::mutex mut;
     QueueHandle_t fronta1 = NULL;
     TaskHandle_t data_checker = NULL;
@@ -92,6 +94,8 @@ private:
 public:
     VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DATA_OUT, call_t ID_callback);
     ~VagComm();
-    void update(uint8_t cd_num, uint8_t track_num, uint8_t time_min, uint8_t time_sec);
+    void update(uint8_t cd_num, uint8_t track_num, uint32_t time_tot);
+    void update(uint8_t tr);
     void set_status(bool MODE_idle, bool PLAYING);
+    uint8_t get_cd();
 };

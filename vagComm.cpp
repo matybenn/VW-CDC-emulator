@@ -69,12 +69,12 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
     data_in_config.clk_src = RMT_CLK_SRC_DEFAULT;
     data_in_config.intr_priority = 0;
     data_in_config.mem_block_symbols = 64;
-    data_in_config.resolution_hz = 1000000; //1tick = 1us
+    data_in_config.resolution_hz = 1000000;
     data_in_config.flags.with_dma = false;
     data_in_config.flags.invert_in = false;
     data_in_config.flags.io_loop_back = false;
-    receive_config.signal_range_min_ns = 1250;     // the shortest duration for NEC signal is 560 µs, 1250 ns < 560 µs, valid signal is not treated as noise
-    receive_config.signal_range_max_ns = 12000000; // the longest duration for NEC signal is 9000 µs, 12000000 ns > 9000 µs, the receive does not stop early
+    receive_config.signal_range_min_ns = 1250;
+    receive_config.signal_range_max_ns = 12000000;
 
     //queve + task
     fronta1 = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
@@ -104,10 +104,10 @@ VagComm::~VagComm(){
     vTaskDelete(data_checker);
 }
 
-void VagComm::update(uint8_t cd_num, uint8_t track_num, uint8_t time_min, uint8_t time_sec){
+void VagComm::update(uint8_t cd_num, uint8_t track_num, uint32_t time_tot){
     mut.lock();
     track = track_num;
-    total_time = (time_min*60) + time_sec;
+    total_time = time_tot;
     if(cd_num != cd && cd_num < CD_EN){
         cd_init(cd_num);
         cd = cd_num;
@@ -116,7 +116,7 @@ void VagComm::update(uint8_t cd_num, uint8_t track_num, uint8_t time_min, uint8_
 }
 
 void VagComm::set_status(bool MODE_idle, bool PLAYING){
-    mut.lock();
+    //mut.lock();
     if(MODE_idle == true && mode == false){
         init();
     }
@@ -134,7 +134,7 @@ void VagComm::set_status(bool MODE_idle, bool PLAYING){
         }
         playing = PLAYING;
     }
-    mut.unlock();
+    //mut.unlock();
 }
 
 void VagComm::send_data(std::array<uint8_t, 8> data){    
@@ -225,13 +225,6 @@ void VagComm::countup_time(){
 }
 
 void VagComm::decode(){
-    
-    /*
-    for (size_t i = 0; i < rxdata.num_symbols; i++) {
-        ESP_LOGI("dec", "{%d:%d},{%d:%d}", rxdata.received_symbols[i].level0, rxdata.received_symbols[i].duration0,
-               rxdata.received_symbols[i].level1, rxdata.received_symbols[i].duration1);
-    }*/
-
     if(rxdata.num_symbols != 34){return;}
     //ESP_LOGI("dec", "frame");
     for (uint8_t a = 0; a<4; ++a){
@@ -247,6 +240,16 @@ void VagComm::decode(){
     }
     //is valid?
     if((nec_received[0] == PREFIX_1) && (nec_received[1] == PREFIX_2)){
-        callback_function(nec_received[2], this); //send third byte to callback
+        callback_function(nec_received[2]); //send third byte to callback
     }
+}
+
+uint8_t VagComm::get_cd(){
+    return cd;
+}
+
+void VagComm::update(uint8_t tr){
+    mut.lock();
+    track = tr;
+    mut.unlock();
 }
