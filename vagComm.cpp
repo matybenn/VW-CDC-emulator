@@ -1,7 +1,4 @@
 #include "vagComm.hpp"
-#define THR_TAG "THREAD"
-
-#define LOG_LEVEL_LOCAL ESP_LOG_VERBOSE
 
 /*static voids*/
 extern "C" bool VagComm::data_rx(rmt_channel_handle_t rx_chan, const rmt_rx_done_event_data_t *edata, void *user_ctx){
@@ -67,7 +64,7 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
     //DATA_IN GPIO RMT INIT
     data_in_config.gpio_num = DATA_I;
     data_in_config.clk_src = RMT_CLK_SRC_DEFAULT;
-    data_in_config.intr_priority = 0;
+    data_in_config.intr_priority = 3;
     data_in_config.mem_block_symbols = 64;
     data_in_config.resolution_hz = 1000000;
     data_in_config.flags.with_dma = false;
@@ -78,7 +75,7 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
 
     //queve + task
     fronta1 = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
-    xTaskCreate(this->data_in_checker, "checker_task", 4096, this, 0, &data_checker);
+    xTaskCreate(this->data_in_checker, "checker_task", 4096, this, 4, &data_checker);
 
     //rx_en
     rmt_new_rx_channel(&data_in_config, &data_in_rmt);
@@ -93,6 +90,7 @@ extern "C" VagComm::VagComm(gpio_num_t CLOCK, gpio_num_t DATA_IN, gpio_num_t DAT
 }
 
 VagComm::~VagComm(){
+    mut.lock();
     esp_timer_stop(time);
     esp_timer_stop(sender);
     esp_timer_delete(time);
@@ -102,6 +100,7 @@ VagComm::~VagComm(){
     rmt_disable(data_in_rmt);
     rmt_del_channel(data_in_rmt);
     vTaskDelete(data_checker);
+    mut.unlock();
 }
 
 void VagComm::update(uint8_t cd_num, uint8_t track_num, uint32_t time_tot){
